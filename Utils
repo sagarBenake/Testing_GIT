@@ -1,0 +1,138 @@
+package com.shieldsquare.utils;
+
+import org.json.JSONObject;
+
+import com.shieldsquare.sdk.Push2ML;
+
+import redis.clients.jedis.Jedis;
+
+public class Utils {
+
+	synchronized private static String getSID(Jedis destinationJedis, String originalSID){
+		String testSID = "";
+		String ismapped=destinationJedis.hget(Constants.MAPPED_SID, originalSID);
+		if(ismapped==null)
+		{	
+			testSID=destinationJedis.srandmember(Constants.TEST_SID);
+			destinationJedis.hset(Constants.MAPPED_SID, originalSID, testSID);
+		}
+		else
+		{
+			testSID=destinationJedis.hget(Constants.MAPPED_SID, originalSID);
+		}
+		return testSID;
+	}
+
+	synchronized public static void computeAPI(Jedis destinationJedis, String originalSID, JSONObject jsonObj){
+		String testSID = "";
+		if(Constants.ENABLE)
+		{
+			if(jsonObj.getString("_zpsbd1")!=null)
+			{																								//SID wise
+				String sidInternal = destinationJedis.hget(Constants.CHECK_SIDMAP, originalSID);
+				boolean check = destinationJedis.sismember(Constants.GET_TRAFFIC, sidInternal);
+				if(check)
+				{
+					testSID=destinationJedis.srandmember(Constants.DEFAULT_SID);
+					change_signature_API(destinationJedis,testSID,Constants.SIZE,jsonObj);
+				}
+			}
+			else
+			{
+				Push2ML.logger.error("SID not found");
+			}	
+		}
+		else
+		{
+			if(jsonObj.getString("_zpsbd1")!=null)
+			{
+				testSID=getSID(destinationJedis, originalSID);
+				change_signature_API(destinationJedis, testSID, Constants.SIZE, jsonObj);
+			}
+			else
+			{
+				Push2ML.logger.error("SID not found");
+			}
+		}
+
+	}
+
+	synchronized private static void change_signature_API(Jedis destinationJedis,String testSID,int size,JSONObject jsonObj)
+	{
+		JSONObject cjsonObj=null;
+		for(int i=1;i<=size;i++)
+		{
+			cjsonObj=jsonObj;
+			try
+			{
+				String sidpart[]=testSID.split("-");
+				String sid4part=sidpart[3];							
+				String oldpid=cjsonObj.getString("_zpsbd2");
+				String old2part[]=oldpid.split("-");				
+				String newpid=oldpid.replace(old2part[1], sid4part);    
+				String cdata = cjsonObj.put("_zpsbd1",testSID).put("_zpsbd2",newpid).toString();
+				destinationJedis.lpush(Constants.DESTINATION_API,cdata);
+			}
+			catch(Exception E)
+			{
+				Push2ML.logger.error("Exception is:", E);
+			}
+		}
+	}	
+
+	synchronized public static void computeJS(Jedis destinationJedis, String originalSID, JSONObject jsonObj){
+		String testSID = "";
+		if(Constants.ENABLE)
+		{
+			if(jsonObj.getString("pid")!=null)
+			{
+				String spid[] = jsonObj.getString("pid").split("-");
+				String sidInternal = destinationJedis.hget(Constants.CHECK_SIDMINMAP, spid[1]);
+				boolean check = destinationJedis.sismember(Constants.GET_TRAFFIC, sidInternal);
+				if(check) 
+				{
+					testSID=destinationJedis.srandmember(Constants.DEFAULT_SID);
+					change_signature_JS(destinationJedis,testSID,Constants.SIZE,jsonObj);
+				}
+			}
+			else
+			{
+				Push2ML.logger.error("PID not found");
+			}	
+		}
+		else
+		{
+			if(jsonObj.getString("pid")!=null)
+			{
+				testSID = getSID(destinationJedis, originalSID);
+				change_signature_JS(destinationJedis, testSID, Constants.SIZE, jsonObj);
+			}
+			else
+			{
+				Push2ML.logger.error("PID not found");
+			}
+		}
+	}
+
+	synchronized private static void change_signature_JS(Jedis destinationJedis,String testSID,int size,JSONObject jsonObj){
+		JSONObject cjsonObj=null;
+		for(int i=1;i<=size;i++)
+		{
+			cjsonObj=jsonObj;
+			try
+			{
+				String sidpart[]=testSID.split("-");
+				String sid4part=sidpart[3];							
+				String oldpid=cjsonObj.getString("pid");
+				String old2part[]=oldpid.split("-");				
+				String newpid=oldpid.replace(old2part[1], sid4part);    
+				String cdata = cjsonObj.put("sid",testSID).put("pid",newpid).toString();
+				destinationJedis.lpush(Constants.DESTINATION_JS,cdata);
+			}
+			catch(Exception E)
+			{
+				Push2ML.logger.error("Exception is:", E);
+			}
+		}
+	}
+}
