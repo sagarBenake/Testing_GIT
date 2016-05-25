@@ -1,0 +1,144 @@
+package com.shieldsquare.sdk;
+
+import java.util.List;
+import org.json.JSONObject;
+import redis.clients.jedis.Jedis;
+import redis.clients.jedis.JedisPool;
+import redis.clients.jedis.JedisPoolConfig;
+import redis.clients.jedis.exceptions.JedisConnectionException;
+import redis.clients.jedis.exceptions.JedisException;
+import com.shieldsquare.utils.Constants;
+import com.shieldsquare.utils.Utils;
+
+public class Push2Api implements Runnable
+{
+	private Jedis sourceJedis;
+	private Jedis destinationJedis;
+
+	private JedisPool destinationJedisPool;
+	private JedisPool sourceJedisPool;
+
+	private String originalSID;
+	
+	//private final Logger logger = Logger.getLogger(Push2Api.class);
+
+	public Push2Api(JedisPool sourceJedisPool,JedisPool destinationJedisPool)
+	{
+		this.sourceJedisPool=sourceJedisPool;
+		this.destinationJedisPool = destinationJedisPool;		
+	}
+//	public void change_signature(Jedis destinationJedis,String testSID,int size,JSONObject jsonObj)
+//	{
+//		JSONObject cjsonObj=null;
+//		for(int i=1;i<=size;i++)
+//		{
+//			cjsonObj=jsonObj;
+//			try
+//			{
+//				String sidpart[]=testSID.split("-");
+//				String sid4part=sidpart[3];							
+//				String oldpid=cjsonObj.getString("_zpsbd2");
+//				String old2part[]=oldpid.split("-");				
+//				String newpid=oldpid.replace(old2part[1], sid4part);    
+//				String cdata = cjsonObj.put("_zpsbd1",testSID).put("_zpsbd2",newpid).toString();
+//				destinationJedis.lpush(Constants.DESTINATION_API,cdata);
+//			}
+//			catch(Exception E)
+//			{
+//				Push2ML.logger.error("Exception is:", E);
+//			}
+//		}
+//	}
+	//@Override
+	public void run() 
+	{	
+		JedisPoolConfig poolConfig = new JedisPoolConfig();
+		poolConfig.setMaxTotal(1000);
+
+		while (true) 
+		{
+			List<String> data = null;
+			try 
+			{
+				sourceJedis=sourceJedisPool.getResource();
+				destinationJedis = destinationJedisPool.getResource();
+				data = sourceJedis.brpop(0, Constants.SOURCE_API);
+				
+				if (data != null && data.size() == 2)
+				{
+					JSONObject jsonObj = new JSONObject(data.get(1));
+					originalSID = jsonObj.getString("_zpsbd1");
+					Utils.computeAPI(destinationJedis, originalSID, jsonObj);
+//					if(Constants.ENABLE)
+//					{
+//						if(jsonObj.getString("_zpsbd1")!=null)
+//						{																								//SID wise
+//							String sidInternal = destinationJedis.hget(Constants.CHECK_SIDMAP, originalSID);
+//							boolean check = destinationJedis.sismember(Constants.GET_TRAFFIC, sidInternal);
+//							if(check)
+//							{
+//								testSID=destinationJedis.srandmember(Constants.DEFAULT_SID);
+//								change_signature(destinationJedis,testSID,Constants.SIZE,jsonObj);
+//							}
+//						}
+//						else
+//						{
+//							Push2ML.logger.error("SID not found:" + data);
+//						}	
+//					}
+//					else
+//					{
+//						if(jsonObj.getString("_zpsbd1")!=null)
+//						{
+//							destinationJedis.pipelined();
+//							String ismapped=destinationJedis.hget(Constants.MAPPED_SID, originalSID);
+//							if(ismapped==null)
+//							{	
+//								testSID=destinationJedis.srandmember(Constants.TEST_SID);
+//								destinationJedis.hset(Constants.MAPPED_SID, originalSID, testSID);
+//								change_signature(destinationJedis,testSID,Constants.SIZE,jsonObj);
+//							}
+//							else
+//							{
+//								testSID=destinationJedis.hget(Constants.MAPPED_SID, originalSID);
+//								change_signature(destinationJedis,testSID,Constants.SIZE,jsonObj);
+//							}
+//							destinationJedis.sync();
+//						}
+//						else
+//						{
+//							Push2ML.logger.error("SID not found:" + data);
+//						}
+//					}
+				}
+				else 
+				{
+					Push2ML.logger.error("Wrong Data is:" + data);
+				}
+			}
+			catch(JedisConnectionException E)
+			{
+				Push2ML.logger.error("Jedis Broken Pipe Exception is:", E);
+				Push2ML.logger.error("Data is"+data.get(1));
+				sourceJedis.rpush(Constants.SOURCE_API, data.get(1));
+			}
+			catch (JedisException E)
+			{
+				Push2ML.logger.error("Jedis RunTime Exception is:", E);
+				Push2ML.logger.error("Data is"+data.get(1));
+				sourceJedis.rpush(Constants.SOURCE_API, data.get(1));
+			}
+			catch (Exception E)
+			{
+				Push2ML.logger.error("Exception is:", E);
+				Push2ML.logger.error("Data is"+data.get(1));
+				sourceJedis.rpush(Constants.SOURCE_API, data.get(1));
+			}
+			finally 
+			{
+				sourceJedis.close();
+				destinationJedis.close();
+			}
+		}
+	}
+}
